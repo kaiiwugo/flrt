@@ -16,6 +16,8 @@
 		</dict>
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>We need access to your photos so you can select screenshots to process with our keyboard.</string>
+	<string>We need access to your photos to automatically fetch screenshots for processing with our keyboard.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>We need access to add processed results to your photo library.</string>
 </dict>
 </plist>

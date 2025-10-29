@@ -6,15 +6,15 @@
 //
 
 import UIKit
-import UniformTypeIdentifiers
+import Photos
 
-class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
+class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserver {
 
     @IBOutlet var nextKeyboardButton: UIButton!
     
     // Keyboard State
     private enum KeyboardState {
-        case prompt    // Waiting for screenshot drop
+        case prompt    // Waiting for user to fetch screenshot
         case processing // Processing screenshot
         case output    // Showing results
     }
@@ -32,32 +32,46 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
     
     // Prompt View Elements
     private var promptView: UIView!
-    private var dropZoneView: UIView!
-    private var dropZoneLabel: UILabel!
+    private var promptLabel: UILabel!
     
     // Loading View Elements
     private var loadingView: UIView!
-    private var loadingSpinner: UIActivityIndicatorView!
     private var loadingLabel: UILabel!
     
     // Output View Elements
     private var outputView: UIView!
-    private var outputLabel: UILabel!
-    private var resetButton: UIButton!
+    private var outputScrollView: UIScrollView!
+    private var outputContentView: UIView!
+    private var outputScreenshotView: UIImageView!
+    private var incomingMessageBubble: UIView!
+    private var incomingMessageLabel: UILabel!
+    private var responseBubblesContainer: UIStackView!
+    private var responseBubble1: UIView!
+    private var responseBubble2: UIView!
+    private var responseBubble3: UIView!
+    private var responseLabel1: UILabel!
+    private var responseLabel2: UILabel!
+    private var responseLabel3: UILabel!
+    private var toolbarView: UIView!
+    private var plusButton: UIButton!
+    private var flrtButton: UIButton!
+    private var closeButton: UIButton!
     
     // State
     private var checkResponseTimer: Timer?
     private var currentResponse: String?
+    private var currentScreenshot: UIImage?
+    private var isObservingPhotoLibrary = false
+    private var lastScreenshotCount = 0
     
     override func updateViewConstraints() {
         super.updateViewConstraints()
         
         // Set keyboard height to match standard iOS keyboard
-        // Use defaultHigh priority to avoid conflicts with system constraints
         if heightConstraint == nil {
-            let keyboardHeight: CGFloat = 270
+            let keyboardHeight: CGFloat = 300
             heightConstraint = view.heightAnchor.constraint(equalToConstant: keyboardHeight)
-            heightConstraint?.priority = .defaultHigh // Changed from .required to avoid conflicts
+            heightConstraint?.priority = .defaultHigh
             heightConstraint?.isActive = true
         }
     }
@@ -67,19 +81,19 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
         print("🔵 KeyboardViewController viewDidLoad")
         setupUI()
         currentState = .prompt
+        startPhotoLibraryObserver()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         print("🔴 KeyboardViewController viewWillDisappear")
+        stopPhotoLibraryObserver()
     }
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         print("🔴 KeyboardViewController viewDidDisappear")
     }
-    
-    // Removed override of dismissKeyboard - it's not a real method and might cause issues
     
     // MARK: - UI Setup
     
@@ -133,124 +147,265 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
         promptView = UIView()
         promptView.translatesAutoresizingMaskIntoConstraints = false
         
-        // Drop Zone View
-        dropZoneView = UIView()
-        dropZoneView.translatesAutoresizingMaskIntoConstraints = false
-        dropZoneView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.1)
-        dropZoneView.layer.cornerRadius = 12
-        dropZoneView.layer.borderWidth = 2
-        dropZoneView.layer.borderColor = UIColor.systemBlue.cgColor
-        promptView.addSubview(dropZoneView)
-        
-        // Enable drag and drop
-        let dropInteraction = UIDropInteraction(delegate: self)
-        dropZoneView.addInteraction(dropInteraction)
-        
-        // Drop Zone Label
-        dropZoneLabel = UILabel()
-        dropZoneLabel.translatesAutoresizingMaskIntoConstraints = false
-        dropZoneLabel.text = "📸\n\nDrag Screenshot Here\n\nTake a screenshot, then drag the\nthumbnail into this area"
-        dropZoneLabel.textAlignment = .center
-        dropZoneLabel.numberOfLines = 0
-        dropZoneLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-        dropZoneLabel.textColor = UIColor.systemBlue
-        dropZoneView.addSubview(dropZoneLabel)
+        // Prompt Label - centered
+        promptLabel = UILabel()
+        promptLabel.translatesAutoresizingMaskIntoConstraints = false
+        promptLabel.text = "take a screen shot to analyze"
+        promptLabel.textAlignment = .center
+        promptLabel.numberOfLines = 0
+        promptLabel.font = UIFont.systemFont(ofSize: 18, weight: .regular)
+        promptLabel.textColor = UIColor.secondaryLabel
+        promptView.addSubview(promptLabel)
         
         NSLayoutConstraint.activate([
-            dropZoneView.topAnchor.constraint(equalTo: promptView.topAnchor),
-            dropZoneView.leadingAnchor.constraint(equalTo: promptView.leadingAnchor),
-            dropZoneView.trailingAnchor.constraint(equalTo: promptView.trailingAnchor),
-            dropZoneView.bottomAnchor.constraint(equalTo: promptView.bottomAnchor),
-            dropZoneView.heightAnchor.constraint(equalToConstant: 200),
-            
-            dropZoneLabel.centerXAnchor.constraint(equalTo: dropZoneView.centerXAnchor),
-            dropZoneLabel.centerYAnchor.constraint(equalTo: dropZoneView.centerYAnchor),
-            dropZoneLabel.leadingAnchor.constraint(equalTo: dropZoneView.leadingAnchor, constant: 16),
-            dropZoneLabel.trailingAnchor.constraint(equalTo: dropZoneView.trailingAnchor, constant: -16)
+            promptLabel.centerXAnchor.constraint(equalTo: promptView.centerXAnchor),
+            promptLabel.centerYAnchor.constraint(equalTo: promptView.centerYAnchor),
+            promptLabel.leadingAnchor.constraint(equalTo: promptView.leadingAnchor, constant: 16),
+            promptLabel.trailingAnchor.constraint(equalTo: promptView.trailingAnchor, constant: -16)
         ])
     }
     
     private func setupLoadingView() {
         loadingView = UIView()
         loadingView.translatesAutoresizingMaskIntoConstraints = false
-        loadingView.backgroundColor = UIColor.systemGray6
-        loadingView.layer.cornerRadius = 12
         
-        // Loading spinner
-        loadingSpinner = UIActivityIndicatorView(style: .large)
-        loadingSpinner.translatesAutoresizingMaskIntoConstraints = false
-        loadingSpinner.color = UIColor.systemBlue
-        loadingView.addSubview(loadingSpinner)
-        
-        // Loading label
+        // Loading label only - simple and clean
         loadingLabel = UILabel()
         loadingLabel.translatesAutoresizingMaskIntoConstraints = false
-        loadingLabel.text = "Processing screenshot...\n\nAnalyzing image with AI"
+        loadingLabel.text = "processing"
         loadingLabel.textAlignment = .center
-        loadingLabel.numberOfLines = 0
-        loadingLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-        loadingLabel.textColor = UIColor.label
+        loadingLabel.numberOfLines = 1
+        loadingLabel.font = UIFont.systemFont(ofSize: 18, weight: .regular)
+        loadingLabel.textColor = UIColor.secondaryLabel
         loadingView.addSubview(loadingLabel)
         
         NSLayoutConstraint.activate([
-            loadingView.heightAnchor.constraint(equalToConstant: 200),
-            
-            loadingSpinner.centerXAnchor.constraint(equalTo: loadingView.centerXAnchor),
-            loadingSpinner.centerYAnchor.constraint(equalTo: loadingView.centerYAnchor, constant: -30),
-            
-            loadingLabel.topAnchor.constraint(equalTo: loadingSpinner.bottomAnchor, constant: 20),
-            loadingLabel.leadingAnchor.constraint(equalTo: loadingView.leadingAnchor, constant: 16),
-            loadingLabel.trailingAnchor.constraint(equalTo: loadingView.trailingAnchor, constant: -16)
+            loadingLabel.centerXAnchor.constraint(equalTo: loadingView.centerXAnchor),
+            loadingLabel.centerYAnchor.constraint(equalTo: loadingView.centerYAnchor)
         ])
     }
     
     private func setupOutputView() {
         outputView = UIView()
         outputView.translatesAutoresizingMaskIntoConstraints = false
-        outputView.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.1)
-        outputView.layer.cornerRadius = 12
-        outputView.layer.borderWidth = 2
-        outputView.layer.borderColor = UIColor.systemGreen.cgColor
+        outputView.backgroundColor = UIColor.systemBackground
         
-        // Output label
-        outputLabel = UILabel()
-        outputLabel.translatesAutoresizingMaskIntoConstraints = false
-        outputLabel.text = "Result will appear here"
-        outputLabel.textAlignment = .center
-        outputLabel.numberOfLines = 0
-        outputLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-        outputLabel.textColor = UIColor.label
-        outputView.addSubview(outputLabel)
+        // Scrollable content area
+        outputScrollView = UIScrollView()
+        outputScrollView.translatesAutoresizingMaskIntoConstraints = false
+        outputScrollView.showsVerticalScrollIndicator = true
+        outputScrollView.alwaysBounceVertical = true
+        outputView.addSubview(outputScrollView)
         
-        // Reset button
-        resetButton = UIButton(type: .system)
-        resetButton.translatesAutoresizingMaskIntoConstraints = false
-        resetButton.setTitle("Process Another Screenshot", for: .normal)
-        resetButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
-        resetButton.backgroundColor = UIColor.systemBlue
-        resetButton.setTitleColor(.white, for: .normal)
-        resetButton.layer.cornerRadius = 8
-        resetButton.addTarget(self, action: #selector(resetToPrompt), for: .touchUpInside)
-        outputView.addSubview(resetButton)
+        // Content container for scroll view
+        outputContentView = UIView()
+        outputContentView.translatesAutoresizingMaskIntoConstraints = false
+        outputScrollView.addSubview(outputContentView)
+        
+        // Main vertical stack for messages
+        let messagesStack = UIStackView()
+        messagesStack.translatesAutoresizingMaskIntoConstraints = false
+        messagesStack.axis = .vertical
+        messagesStack.spacing = 8
+        messagesStack.alignment = .fill
+        outputContentView.addSubview(messagesStack)
+        
+        // Row 1: Screenshot (left-aligned, like incoming message)
+        let screenshotRow = UIView()
+        screenshotRow.translatesAutoresizingMaskIntoConstraints = false
+        
+        outputScreenshotView = UIImageView()
+        outputScreenshotView.translatesAutoresizingMaskIntoConstraints = false
+        outputScreenshotView.contentMode = .scaleAspectFit
+        outputScreenshotView.layer.cornerRadius = 12
+        outputScreenshotView.clipsToBounds = true
+        outputScreenshotView.backgroundColor = UIColor.systemGray5
+        screenshotRow.addSubview(outputScreenshotView)
+        
+        // Row 2: Incoming text message (left-aligned, gray bubble)
+        let incomingRow = UIView()
+        incomingRow.translatesAutoresizingMaskIntoConstraints = false
+        
+        let (incomingBubble, incomingLabel) = createIncomingBubble(text: "What do you think of this?")
+        incomingMessageBubble = incomingBubble
+        incomingMessageLabel = incomingLabel
+        incomingRow.addSubview(incomingBubble)
+        
+        // Rows 3-5: Response bubbles (right-aligned, blue)
+        let response1Row = createResponseRow(text: "This is a sample response")
+        let response2Row = createResponseRow(text: "Here's another suggestion")
+        let response3Row = createResponseRow(text: "And a third option")
+        
+        // Store references to response bubbles
+        responseBubble1 = response1Row.subviews.first!
+        responseBubble2 = response2Row.subviews.first!
+        responseBubble3 = response3Row.subviews.first!
+        
+        responseLabel1 = responseBubble1.subviews.first as? UILabel
+        responseLabel2 = responseBubble2.subviews.first as? UILabel
+        responseLabel3 = responseBubble3.subviews.first as? UILabel
+        
+        // Add all rows to stack
+        messagesStack.addArrangedSubview(screenshotRow)
+        messagesStack.addArrangedSubview(incomingRow)
+        messagesStack.addArrangedSubview(response1Row)
+        messagesStack.addArrangedSubview(response2Row)
+        messagesStack.addArrangedSubview(response3Row)
+        
+        // Toolbar at bottom
+        setupToolbar()
+        outputView.addSubview(toolbarView)
         
         NSLayoutConstraint.activate([
-            outputView.heightAnchor.constraint(greaterThanOrEqualToConstant: 200),
+            // Scroll view
+            outputScrollView.topAnchor.constraint(equalTo: outputView.topAnchor),
+            outputScrollView.leadingAnchor.constraint(equalTo: outputView.leadingAnchor),
+            outputScrollView.trailingAnchor.constraint(equalTo: outputView.trailingAnchor),
+            outputScrollView.bottomAnchor.constraint(equalTo: toolbarView.topAnchor),
             
-            outputLabel.topAnchor.constraint(equalTo: outputView.topAnchor, constant: 20),
-            outputLabel.leadingAnchor.constraint(equalTo: outputView.leadingAnchor, constant: 16),
-            outputLabel.trailingAnchor.constraint(equalTo: outputView.trailingAnchor, constant: -16),
+            // Content view
+            outputContentView.topAnchor.constraint(equalTo: outputScrollView.topAnchor),
+            outputContentView.leadingAnchor.constraint(equalTo: outputScrollView.leadingAnchor),
+            outputContentView.trailingAnchor.constraint(equalTo: outputScrollView.trailingAnchor),
+            outputContentView.bottomAnchor.constraint(equalTo: outputScrollView.bottomAnchor),
+            outputContentView.widthAnchor.constraint(equalTo: outputScrollView.widthAnchor),
             
-            resetButton.topAnchor.constraint(equalTo: outputLabel.bottomAnchor, constant: 20),
-            resetButton.leadingAnchor.constraint(equalTo: outputView.leadingAnchor, constant: 16),
-            resetButton.trailingAnchor.constraint(equalTo: outputView.trailingAnchor, constant: -16),
-            resetButton.bottomAnchor.constraint(equalTo: outputView.bottomAnchor, constant: -20),
-            resetButton.heightAnchor.constraint(equalToConstant: 44)
+            // Messages stack
+            messagesStack.topAnchor.constraint(equalTo: outputContentView.topAnchor, constant: 12),
+            messagesStack.leadingAnchor.constraint(equalTo: outputContentView.leadingAnchor, constant: 12),
+            messagesStack.trailingAnchor.constraint(equalTo: outputContentView.trailingAnchor, constant: -12),
+            messagesStack.bottomAnchor.constraint(equalTo: outputContentView.bottomAnchor, constant: -12),
+            
+            // Screenshot row
+            outputScreenshotView.leadingAnchor.constraint(equalTo: screenshotRow.leadingAnchor),
+            outputScreenshotView.topAnchor.constraint(equalTo: screenshotRow.topAnchor),
+            outputScreenshotView.bottomAnchor.constraint(equalTo: screenshotRow.bottomAnchor),
+            outputScreenshotView.widthAnchor.constraint(equalToConstant: 120),
+            outputScreenshotView.heightAnchor.constraint(equalToConstant: 160),
+            
+            // Incoming message row
+            incomingBubble.leadingAnchor.constraint(equalTo: incomingRow.leadingAnchor),
+            incomingBubble.topAnchor.constraint(equalTo: incomingRow.topAnchor),
+            incomingBubble.bottomAnchor.constraint(equalTo: incomingRow.bottomAnchor),
+            incomingBubble.widthAnchor.constraint(lessThanOrEqualToConstant: 240),
+            
+            // Toolbar
+            toolbarView.leadingAnchor.constraint(equalTo: outputView.leadingAnchor),
+            toolbarView.trailingAnchor.constraint(equalTo: outputView.trailingAnchor),
+            toolbarView.bottomAnchor.constraint(equalTo: outputView.bottomAnchor),
+            toolbarView.heightAnchor.constraint(equalToConstant: 44)
         ])
+    }
+    
+    private func setupToolbar() {
+        toolbarView = UIView()
+        toolbarView.translatesAutoresizingMaskIntoConstraints = false
+        toolbarView.backgroundColor = .clear
+        
+        // Plus button (left)
+        plusButton = UIButton(type: .system)
+        plusButton.translatesAutoresizingMaskIntoConstraints = false
+        plusButton.setTitle("+", for: .normal)
+        plusButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .regular)
+        plusButton.setTitleColor(UIColor.systemBlue, for: .normal)
+        toolbarView.addSubview(plusButton)
+        
+        // Flrt button (center)
+        flrtButton = UIButton(type: .system)
+        flrtButton.translatesAutoresizingMaskIntoConstraints = false
+        flrtButton.setTitle("flrt", for: .normal)
+        flrtButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        flrtButton.setTitleColor(UIColor.label, for: .normal)
+        toolbarView.addSubview(flrtButton)
+        
+        // Close button (right)
+        closeButton = UIButton(type: .system)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setTitle("✕", for: .normal)
+        closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 20, weight: .regular)
+        closeButton.setTitleColor(UIColor.secondaryLabel, for: .normal)
+        closeButton.addTarget(self, action: #selector(resetToPrompt), for: .touchUpInside)
+        toolbarView.addSubview(closeButton)
+        
+        NSLayoutConstraint.activate([
+            plusButton.leadingAnchor.constraint(equalTo: toolbarView.leadingAnchor, constant: 16),
+            plusButton.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor),
+            plusButton.widthAnchor.constraint(equalToConstant: 44),
+            plusButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            flrtButton.centerXAnchor.constraint(equalTo: toolbarView.centerXAnchor),
+            flrtButton.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor),
+            
+            closeButton.trailingAnchor.constraint(equalTo: toolbarView.trailingAnchor, constant: -16),
+            closeButton.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 44),
+            closeButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+    
+    // MARK: - Bubble Creation Helpers
+    
+    private func createIncomingBubble(text: String) -> (UIView, UILabel) {
+        let bubble = UIView()
+        bubble.translatesAutoresizingMaskIntoConstraints = false
+        bubble.backgroundColor = UIColor.systemGray5
+        bubble.layer.cornerRadius = 18
+        bubble.clipsToBounds = true
+        
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = text
+        label.textColor = UIColor.label
+        label.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+        label.numberOfLines = 0
+        bubble.addSubview(label)
+        
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 10),
+            label.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 14),
+            label.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -14),
+            label.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -10)
+        ])
+        
+        return (bubble, label)
+    }
+    
+    private func createResponseRow(text: String) -> UIView {
+        let row = UIView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        
+        let bubble = UIView()
+        bubble.translatesAutoresizingMaskIntoConstraints = false
+        bubble.backgroundColor = UIColor.systemBlue
+        bubble.layer.cornerRadius = 18
+        bubble.clipsToBounds = true
+        row.addSubview(bubble)
+        
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = text
+        label.textColor = .white
+        label.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+        label.numberOfLines = 0
+        bubble.addSubview(label)
+        
+        NSLayoutConstraint.activate([
+            bubble.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            bubble.topAnchor.constraint(equalTo: row.topAnchor),
+            bubble.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+            bubble.widthAnchor.constraint(lessThanOrEqualToConstant: 240),
+            
+            label.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 10),
+            label.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 14),
+            label.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -14),
+            label.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -10)
+        ])
+        
+        return row
     }
     
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        // Check if we have a valid connection before calling needsInputModeSwitchKey
         if self.textDocumentProxy.documentContextBeforeInput != nil || self.textDocumentProxy.documentContextAfterInput != nil {
             self.nextKeyboardButton.isHidden = !self.needsInputModeSwitchKey
         }
@@ -266,7 +421,6 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
     private func transitionToState(_ state: KeyboardState) {
         print("🔄 State transition to: \(state)")
         
-        // Keep a strong reference to prevent deallocation during transition
         let strongSelf = self
         
         // Remove all views from stack
@@ -277,27 +431,31 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
         case .prompt:
             print("   → Showing prompt view")
             contentStackView.addArrangedSubview(promptView)
-            resetDropZone()
             
         case .processing:
             print("   → Showing loading view")
             contentStackView.addArrangedSubview(loadingView)
-            loadingSpinner.startAnimating()
             
         case .output:
             print("   → Showing output view")
             contentStackView.addArrangedSubview(outputView)
+            
+            // Set the screenshot in output view (cropped to remove keyboard)
+            if let screenshot = currentScreenshot {
+                let croppedScreenshot = cropKeyboardFromScreenshot(screenshot)
+                outputScreenshotView.image = croppedScreenshot
+                print("   → Screenshot set in output view (cropped)")
+            }
+            
+            // Update bubble text with response (for now just sample text)
             if let response = currentResponse {
-                outputLabel.text = "✅\n\n\(response)"
-                print("   → Output text set to: \(response)")
-            } else {
-                print("   ⚠️ No response to display!")
+                print("   → Response: \(response)")
+                // TODO: Parse response and populate bubbles
+                // For now, bubbles show sample text
             }
         }
         
         updateTheme()
-        
-        // Force layout
         strongSelf.view.layoutIfNeeded()
         
         print("✅ State transition complete, view count: \(contentStackView.arrangedSubviews.count)")
@@ -307,8 +465,15 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
         checkResponseTimer?.invalidate()
         checkResponseTimer = nil
         currentResponse = nil
+        currentScreenshot = nil
+        
+        // Reset prompt label
+        promptLabel.text = "take a screen shot to analyze"
+        promptLabel.textColor = UIColor.secondaryLabel
+        
         currentState = .prompt
     }
+    
     
     private func updateTheme() {
         let isDark = self.textDocumentProxy.keyboardAppearance == .dark
@@ -316,88 +481,98 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
         // Container
         containerView.backgroundColor = isDark ? UIColor.systemGray6 : UIColor.systemBackground
         
-        // Prompt view
-        dropZoneLabel.textColor = isDark ? UIColor.systemBlue.withAlphaComponent(0.9) : UIColor.systemBlue
-        dropZoneView.backgroundColor = isDark ? UIColor.systemBlue.withAlphaComponent(0.15) : UIColor.systemBlue.withAlphaComponent(0.1)
-        
-        // Loading view
-        loadingView.backgroundColor = isDark ? UIColor.systemGray5 : UIColor.systemGray6
-        loadingLabel.textColor = isDark ? UIColor.lightText : UIColor.label
-        
-        // Output view
-        outputLabel.textColor = isDark ? UIColor.lightText : UIColor.label
+        // Prompt and loading views use secondaryLabel (always gray)
+        promptLabel.textColor = UIColor.secondaryLabel
+        loadingLabel.textColor = UIColor.secondaryLabel
     }
     
-    // MARK: - UIDropInteractionDelegate
+    // MARK: - Screenshot Fetching
     
-    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
-        // Check if the session contains an image
-        return session.canLoadObjects(ofClass: UIImage.self)
-    }
-    
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
-        // Show that we accept the drop with copy operation
-        // Use .copy to prevent iOS from switching apps
-        let proposal = UIDropProposal(operation: .copy)
-        return proposal
-    }
-    
-    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
-        print("📥 Drop interaction started")
+    @objc private func fetchScreenshotTapped() {
+        print("📸 Fetch screenshot button tapped")
         
-        // Keep a strong reference to self to prevent deallocation
-        let strongSelf = self
+        // Check photo library authorization
+        let status = PhotoLibraryManager.shared.checkAuthorizationStatus()
         
-        // Handle the dropped image using item providers (safer for extensions)
-        for item in session.items {
-            item.itemProvider.loadObject(ofClass: UIImage.self) { (object, error) in
-                if let error = error {
-                    print("❌ Error loading image: \(error)")
-                    return
-                }
-                
-                guard let image = object as? UIImage else {
-                    print("❌ No image in drop")
-                    return
-                }
-                
-                print("✅ Image received from drop")
-                
-                // Generate a name for the screenshot
-                let imageName = "screenshot_\(Date().timeIntervalSince1970).jpg"
-                
-                // Transition to processing state and process image
+        switch status {
+        case .notDetermined:
+            print("📸 Requesting photo library authorization...")
+            PhotoLibraryManager.shared.requestAuthorization { [weak self] newStatus in
                 DispatchQueue.main.async {
-                    print("🔄 Transitioning to processing state")
-                    strongSelf.currentState = .processing
-                    strongSelf.processImage(image, name: imageName)
+                    if newStatus == .authorized || newStatus == .limited {
+                        self?.fetchAndProcessScreenshot()
+                    } else {
+                        self?.showPermissionDeniedAlert()
+                    }
                 }
             }
-            break // Only process first item
+            
+        case .authorized, .limited:
+            fetchAndProcessScreenshot()
+            
+        case .denied, .restricted:
+            showPermissionDeniedAlert()
+            
+        @unknown default:
+            print("❌ Unknown authorization status")
+            showPermissionDeniedAlert()
         }
     }
     
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnter session: UIDropSession) {
-        // Visual feedback when drag enters the drop zone
-        UIView.animate(withDuration: 0.2) {
-            self.dropZoneView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
-            self.dropZoneView.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
+    private func fetchAndProcessScreenshot() {
+        print("📸 Fetching latest screenshot from photo library...")
+        
+        // Fetch the latest screenshot
+        guard let screenshot = PhotoLibraryManager.shared.fetchLatestScreenshot() else {
+            print("❌ No screenshot found in photo library")
+            showNoScreenshotAlert()
+            return
         }
+        
+        print("✅ Screenshot fetched successfully")
+        
+        // Store the screenshot
+        currentScreenshot = screenshot
+        
+        // Generate a name for the screenshot
+        let imageName = "screenshot_\(Date().timeIntervalSince1970).jpg"
+        
+        // Transition to processing and process the image
+        currentState = .processing
+        processImage(screenshot, name: imageName)
     }
     
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
-        // Reset visual feedback when drag exits
-        UIView.animate(withDuration: 0.2) {
-            self.dropZoneView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.1)
-            self.dropZoneView.transform = .identity
-        }
+    private func showPermissionDeniedAlert() {
+        let alert = UIAlertController(
+            title: "Photo Access Required",
+            message: "Please enable photo library access in Settings → Privacy → Photos → Flrt to use this feature.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Open Settings", style: .default) { [weak self] _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                // Use extensionContext to open URL in keyboard extensions
+                self?.extensionContext?.open(url, completionHandler: { success in
+                    print(success ? "✅ Opened Settings" : "❌ Failed to open Settings")
+                })
+            }
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        self.present(alert, animated: true)
     }
     
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnd session: UIDropSession) {
-        // Reset transform after drop completes
-        UIView.animate(withDuration: 0.2) {
-            self.dropZoneView.transform = .identity
-        }
+    private func showNoScreenshotAlert() {
+        let alert = UIAlertController(
+            title: "No Screenshots Found",
+            message: "Please take a screenshot first, then tap the fetch button.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        
+        self.present(alert, animated: true)
     }
     
     // MARK: - Image Processing
@@ -410,11 +585,9 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
             print("📸 Image saved to shared container, waiting for main app to process...")
             
             // Start polling for response
-            // NOTE: Main app must be running (foreground or background) to process images
             startPollingForResponse()
             
         } else {
-            // Show error and reset to prompt
             print("❌ Failed to save image to shared container")
             DispatchQueue.main.async { [weak self] in
                 self?.currentResponse = "Failed to save image"
@@ -433,7 +606,6 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
     
     private func checkForResponse() {
         if let response = SharedDataManager.shared.getResponse() {
-            // Got response!
             print("📨 Response received: \(response)")
             checkResponseTimer?.invalidate()
             checkResponseTimer = nil
@@ -448,17 +620,10 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
                 }
                 print("📤 About to show output view")
                 self.currentResponse = response
-                self.loadingSpinner.stopAnimating()
                 self.currentState = .output
                 print("✅ Output view should now be visible")
             }
         }
-    }
-    
-    private func resetDropZone() {
-        dropZoneLabel.text = "📸\n\nDrag Screenshot Here\n\nTake a screenshot, then drag the\nthumbnail into this area"
-        dropZoneView.layer.borderColor = UIColor.systemBlue.cgColor
-        updateTheme()
     }
     
     override func textWillChange(_ textInput: UITextInput?) {
@@ -472,6 +637,118 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
     
     deinit {
         checkResponseTimer?.invalidate()
+        stopPhotoLibraryObserver()
         print("🔴 KeyboardViewController deinit")
     }
+    
+    // MARK: - Image Processing
+    
+    /// Crops the keyboard area from a screenshot
+    /// Removes the bottom portion where the keyboard typically appears
+    private func cropKeyboardFromScreenshot(_ image: UIImage) -> UIImage {
+        guard let cgImage = image.cgImage else {
+            return image
+        }
+        
+        let imageHeight = CGFloat(cgImage.height)
+        let imageWidth = CGFloat(cgImage.width)
+        
+        // Calculate keyboard height as a percentage of screen height
+        // iOS keyboards are typically 270-300pt on most devices
+        // As a percentage of screen height, this is roughly 32-35%
+        // We'll use 33% to be safe
+        let keyboardHeightPercentage: CGFloat = 0.33
+        let keyboardHeightInPixels = imageHeight * keyboardHeightPercentage
+        
+        // Calculate the crop rectangle (everything ABOVE the keyboard)
+        let cropHeight = imageHeight - keyboardHeightInPixels
+        let cropRect = CGRect(
+            x: 0,
+            y: 0,
+            width: imageWidth,
+            height: cropHeight
+        )
+        
+        // Perform the crop
+        guard let croppedCGImage = cgImage.cropping(to: cropRect) else {
+            print("⚠️ Failed to crop image, returning original")
+            return image
+        }
+        
+        let croppedImage = UIImage(
+            cgImage: croppedCGImage,
+            scale: image.scale,
+            orientation: image.imageOrientation
+        )
+        
+        print("✂️ Cropped screenshot from \(Int(imageHeight))px to \(Int(cropHeight))px (removed ~\(Int(keyboardHeightInPixels))px keyboard)")
+        
+        return croppedImage
+    }
+    
+    // MARK: - Photo Library Observer
+    
+    private func startPhotoLibraryObserver() {
+        guard !isObservingPhotoLibrary else { return }
+        
+        let status = PhotoLibraryManager.shared.checkAuthorizationStatus()
+        guard status == .authorized || status == .limited else {
+            print("⚠️ Photo library not authorized, cannot start observer")
+            return
+        }
+        
+        PHPhotoLibrary.shared().register(self)
+        isObservingPhotoLibrary = true
+        
+        // Get initial screenshot count
+        lastScreenshotCount = getScreenshotCount()
+        
+        print("👀 Started observing photo library. Current screenshot count: \(lastScreenshotCount)")
+    }
+    
+    private func stopPhotoLibraryObserver() {
+        guard isObservingPhotoLibrary else { return }
+        
+        PHPhotoLibrary.shared().unregisterChangeObserver(self)
+        isObservingPhotoLibrary = false
+        
+        print("👋 Stopped observing photo library")
+    }
+    
+    private func getScreenshotCount() -> Int {
+        let fetchOptions = PHFetchOptions()
+        fetchOptions.predicate = NSPredicate(format: "(mediaSubtype & %d) != 0", PHAssetMediaSubtype.photoScreenshot.rawValue)
+        let fetchResult = PHAsset.fetchAssets(with: .image, options: fetchOptions)
+        return fetchResult.count
+    }
+    
+    // PHPhotoLibraryChangeObserver delegate method
+    func photoLibraryDidChange(_ changeInstance: PHChange) {
+        print("📸 Photo library changed!")
+        
+        // Check if screenshot count increased
+        let newCount = getScreenshotCount()
+        
+        if newCount > lastScreenshotCount {
+            print("🆕 New screenshot detected! Count: \(lastScreenshotCount) → \(newCount)")
+            lastScreenshotCount = newCount
+            
+            // Auto-fetch if we're in prompt state
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                
+                if self.currentState == .prompt {
+                    print("🚀 Auto-fetching new screenshot...")
+                    
+                    // Auto-fetch after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.fetchAndProcessScreenshot()
+                    }
+                }
+            }
+        } else {
+            lastScreenshotCount = newCount
+        }
+    }
+    
 }

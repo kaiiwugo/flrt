@@ -20,5 +20,7 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).KeyboardViewController</string>
 	</dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We need access to your photos to automatically fetch screenshots for processing.</string>
 </dict>
 </plist>
