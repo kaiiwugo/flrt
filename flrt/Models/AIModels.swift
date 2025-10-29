@@ -16,17 +16,23 @@ struct AIRequest {
     let prompt: String?
     let systemPrompt: String
     let maxSuggestions: Int
+    let configuration: PromptConfiguration
     
     init(
         image: UIImage,
         prompt: String? = nil,
-        systemPrompt: String = AIConstants.defaultSystemPrompt,
-        maxSuggestions: Int = 3
+        systemPrompt: String? = nil,
+        maxSuggestions: Int = 3,
+        configuration: PromptConfiguration = PromptConfiguration()
     ) {
         self.image = image
-        self.prompt = prompt
-        self.systemPrompt = systemPrompt
+        self.configuration = configuration
         self.maxSuggestions = maxSuggestions
+        
+        // Build prompts from configuration
+        let prompts = PromptTemplate.build(with: configuration)
+        self.systemPrompt = systemPrompt ?? prompts.system
+        self.prompt = prompt ?? prompts.user
     }
 }
 
@@ -76,30 +82,13 @@ struct MessageSuggestion {
 
 // MARK: - Constants
 
+// MARK: - Constants (Legacy - Use PromptTemplate instead)
+
 enum AIConstants {
-    static let defaultSystemPrompt = """
-    You are a helpful assistant that analyzes screenshots and suggests 3 appropriate text message responses.
-    
-    Guidelines:
-    - Analyze the context of the screenshot
-    - Generate 3 diverse response options
-    - Keep responses concise and natural (like text messages)
-    - Make responses relevant to what's shown in the image
-    - Vary the tone: one casual, one thoughtful, one engaging
-    - Each response should be 1-2 sentences max
-    
-    Format your response as JSON:
-    {
-        "context": "brief description of what you see",
-        "suggestions": [
-            {"text": "first response", "tone": "casual"},
-            {"text": "second response", "tone": "thoughtful"},
-            {"text": "third response", "tone": "engaging"}
-        ]
-    }
-    """
-    
-    static let defaultUserPrompt = "Analyze this screenshot and suggest 3 appropriate text message responses."
+    // Kept for backward compatibility
+    // New code should use PromptTemplate.build(with: PromptConfiguration())
+    static let defaultSystemPrompt = PromptTemplate.default.systemPrompt
+    static let defaultUserPrompt = PromptTemplate.default.userPromptTemplate
 }
 
 // MARK: - Error Handling

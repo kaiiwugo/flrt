@@ -11,6 +11,7 @@ import Photos
 struct ContentView: View {
     @StateObject private var imageProcessor = ImageProcessor()
     @StateObject private var photoLibrary = PhotoLibraryManager.shared
+    @StateObject private var userPreferences = UserPreferences.shared
     @State private var showingPermissionAlert = false
     
     var body: some View {
@@ -106,6 +107,19 @@ struct ContentView: View {
         .onAppear {
             imageProcessor.startMonitoring()
             photoLibrary.checkAuthorizationStatus()
+            
+            // HARDCODED DEFAULTS - TODO: Make these user-configurable in settings
+            userPreferences.setDefaults(
+                flirtLevel: .flirty,     // Options: .respectful, .flirty, .bold
+                age: 25,                 // User's age
+                gender: .male,           // User's gender
+                targetGender: .female    // Who they're talking to (optional)
+            )
+            
+            print("🎯 User preferences set:")
+            print("   Flirt: \(userPreferences.flirtLevel.rawValue)")
+            print("   Age: \(userPreferences.userAge)")
+            print("   Gender: \(userPreferences.userGender.rawValue)")
         }
         .onDisappear {
             imageProcessor.stopMonitoring()
@@ -188,6 +202,7 @@ class ImageProcessor: ObservableObject {
     
     private var monitorTimer: Timer?
     private var screenshotObserver: NSObjectProtocol?
+    private let userPreferences = UserPreferences.shared
     
     func startMonitoring() {
         print("Starting image monitoring...")
@@ -255,8 +270,19 @@ class ImageProcessor: ObservableObject {
         // Process with AI
         Task {
             do {
-                // Create AI request
-                let request = AIRequest(image: image)
+                // Get current user configuration
+                let config = userPreferences.currentConfiguration()
+                
+                // Create AI request with configuration
+                let request = AIRequest(
+                    image: image,
+                    configuration: config
+                )
+                
+                print("📋 Using configuration:")
+                print("   Flirt Level: \(config.flirtLevel.rawValue)")
+                print("   Age: \(config.userAge)")
+                print("   Gender: \(config.userGender.rawValue)")
                 
                 // Process through AI service
                 let parsedResponse = try await AIServiceManager.shared.processImage(request)
@@ -394,8 +420,4 @@ class ImageProcessor: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
     }
-}
-
-#Preview {
-    ContentView()
 }
