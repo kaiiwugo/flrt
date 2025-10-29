@@ -53,22 +53,33 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
         super.updateViewConstraints()
         
         // Set keyboard height to match standard iOS keyboard
-        if let constraint = heightConstraint {
-            constraint.isActive = false
+        // Use defaultHigh priority to avoid conflicts with system constraints
+        if heightConstraint == nil {
+            let keyboardHeight: CGFloat = 270
+            heightConstraint = view.heightAnchor.constraint(equalToConstant: keyboardHeight)
+            heightConstraint?.priority = .defaultHigh // Changed from .required to avoid conflicts
+            heightConstraint?.isActive = true
         }
-        
-        // Standard keyboard height varies by device, but ~270 is a good target
-        let keyboardHeight: CGFloat = 270
-        heightConstraint = view.heightAnchor.constraint(equalToConstant: keyboardHeight)
-        heightConstraint?.priority = .required
-        heightConstraint?.isActive = true
     }
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        print("🔵 KeyboardViewController viewDidLoad")
         setupUI()
         currentState = .prompt
     }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        print("🔴 KeyboardViewController viewWillDisappear")
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        print("🔴 KeyboardViewController viewDidDisappear")
+    }
+    
+    // Removed override of dismissKeyboard - it's not a real method and might cause issues
     
     // MARK: - UI Setup
     
@@ -239,7 +250,10 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
     
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        self.nextKeyboardButton.isHidden = !self.needsInputModeSwitchKey
+        // Check if we have a valid connection before calling needsInputModeSwitchKey
+        if self.textDocumentProxy.documentContextBeforeInput != nil || self.textDocumentProxy.documentContextAfterInput != nil {
+            self.nextKeyboardButton.isHidden = !self.needsInputModeSwitchKey
+        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -250,27 +264,43 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
     // MARK: - State Management
     
     private func transitionToState(_ state: KeyboardState) {
+        print("🔄 State transition to: \(state)")
+        
+        // Keep a strong reference to prevent deallocation during transition
+        let strongSelf = self
+        
         // Remove all views from stack
         contentStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
         
         // Add appropriate view based on state
         switch state {
         case .prompt:
+            print("   → Showing prompt view")
             contentStackView.addArrangedSubview(promptView)
             resetDropZone()
             
         case .processing:
+            print("   → Showing loading view")
             contentStackView.addArrangedSubview(loadingView)
             loadingSpinner.startAnimating()
             
         case .output:
+            print("   → Showing output view")
             contentStackView.addArrangedSubview(outputView)
             if let response = currentResponse {
                 outputLabel.text = "✅\n\n\(response)"
+                print("   → Output text set to: \(response)")
+            } else {
+                print("   ⚠️ No response to display!")
             }
         }
         
         updateTheme()
+        
+        // Force layout
+        strongSelf.view.layoutIfNeeded()
+        
+        print("✅ State transition complete, view count: \(contentStackView.arrangedSubviews.count)")
     }
     
     @objc private func resetToPrompt() {
@@ -307,25 +337,43 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
     
     func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
         // Show that we accept the drop with copy operation
-        return UIDropProposal(operation: .copy)
+        // Use .copy to prevent iOS from switching apps
+        let proposal = UIDropProposal(operation: .copy)
+        return proposal
     }
     
     func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
-        // Handle the dropped image
-        session.loadObjects(ofClass: UIImage.self) { [weak self] imageItems in
-            guard let self = self,
-                  let image = imageItems.first as? UIImage else {
-                return
+        print("📥 Drop interaction started")
+        
+        // Keep a strong reference to self to prevent deallocation
+        let strongSelf = self
+        
+        // Handle the dropped image using item providers (safer for extensions)
+        for item in session.items {
+            item.itemProvider.loadObject(ofClass: UIImage.self) { (object, error) in
+                if let error = error {
+                    print("❌ Error loading image: \(error)")
+                    return
+                }
+                
+                guard let image = object as? UIImage else {
+                    print("❌ No image in drop")
+                    return
+                }
+                
+                print("✅ Image received from drop")
+                
+                // Generate a name for the screenshot
+                let imageName = "screenshot_\(Date().timeIntervalSince1970).jpg"
+                
+                // Transition to processing state and process image
+                DispatchQueue.main.async {
+                    print("🔄 Transitioning to processing state")
+                    strongSelf.currentState = .processing
+                    strongSelf.processImage(image, name: imageName)
+                }
             }
-            
-            // Generate a name for the screenshot
-            let imageName = "screenshot_\(Date().timeIntervalSince1970).jpg"
-            
-            // Transition to processing state and process image
-            DispatchQueue.main.async {
-                self.currentState = .processing
-                self.processImage(image, name: imageName)
-            }
+            break // Only process first item
         }
     }
     
@@ -386,6 +434,7 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
     private func checkForResponse() {
         if let response = SharedDataManager.shared.getResponse() {
             // Got response!
+            print("📨 Response received: \(response)")
             checkResponseTimer?.invalidate()
             checkResponseTimer = nil
             
@@ -393,9 +442,15 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
             
             // Display response in output view
             DispatchQueue.main.async { [weak self] in
-                self?.currentResponse = response
-                self?.currentState = .output
-                self?.loadingSpinner.stopAnimating()
+                guard let self = self else {
+                    print("❌ Self was deallocated in checkForResponse")
+                    return
+                }
+                print("📤 About to show output view")
+                self.currentResponse = response
+                self.loadingSpinner.stopAnimating()
+                self.currentState = .output
+                print("✅ Output view should now be visible")
             }
         }
     }
@@ -417,5 +472,6 @@ class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
     
     deinit {
         checkResponseTimer?.invalidate()
+        print("🔴 KeyboardViewController deinit")
     }
 }
