@@ -8,7 +8,7 @@
 import UIKit
 import UniformTypeIdentifiers
 
-class KeyboardViewController: UIInputViewController {
+class KeyboardViewController: UIInputViewController, UIDropInteractionDelegate {
 
     @IBOutlet var nextKeyboardButton: UIButton!
     
@@ -48,7 +48,6 @@ class KeyboardViewController: UIInputViewController {
     // State
     private var checkResponseTimer: Timer?
     private var currentResponse: String?
-    private var pollCount = 0
     
     override func updateViewConstraints() {
         super.updateViewConstraints()
@@ -143,18 +142,17 @@ class KeyboardViewController: UIInputViewController {
         dropZoneView.layer.borderColor = UIColor.systemBlue.cgColor
         promptView.addSubview(dropZoneView)
         
-        // Make drop zone tappable for paste
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dropZoneTapped))
-        dropZoneView.addGestureRecognizer(tapGesture)
-        dropZoneView.isUserInteractionEnabled = true
+        // Enable drag and drop
+        let dropInteraction = UIDropInteraction(delegate: self)
+        dropZoneView.addInteraction(dropInteraction)
         
         // Drop Zone Label
         dropZoneLabel = UILabel()
         dropZoneLabel.translatesAutoresizingMaskIntoConstraints = false
-        dropZoneLabel.text = "📸\n\nPaste Screenshot Here\n\n1. Take a screenshot\n2. Tap the thumbnail & copy\n3. Tap here to paste"
+        dropZoneLabel.text = "📸\n\nDrag Screenshot Here\n\nTake a screenshot, then drag the\nthumbnail into this area"
         dropZoneLabel.textAlignment = .center
         dropZoneLabel.numberOfLines = 0
-        dropZoneLabel.font = UIFont.systemFont(ofSize: 15, weight: .medium)
+        dropZoneLabel.font = UIFont.systemFont(ofSize: 16, weight: .medium)
         dropZoneLabel.textColor = UIColor.systemBlue
         dropZoneView.addSubview(dropZoneLabel)
         
@@ -268,13 +266,8 @@ class KeyboardViewController: UIInputViewController {
     private func transitionToState(_ state: KeyboardState) {
         print("🔄 State transition to: \(state)")
         
-        // Ensure we're on main thread
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.transitionToState(state)
-            }
-            return
-        }
+        // Keep a strong reference to prevent deallocation during transition
+        let strongSelf = self
         
         // Remove all views from stack
         contentStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -293,28 +286,21 @@ class KeyboardViewController: UIInputViewController {
             
         case .output:
             print("   → Showing output view")
-            
-            // Set the response text BEFORE adding to stack
+            contentStackView.addArrangedSubview(outputView)
             if let response = currentResponse {
                 outputLabel.text = "✅\n\n\(response)"
                 print("   → Output text set to: \(response)")
             } else {
-                outputLabel.text = "✅\n\nProcessed successfully!"
-                print("   ⚠️ No response, using default text")
+                print("   ⚠️ No response to display!")
             }
-            
-            // Now add to stack
-            contentStackView.addArrangedSubview(outputView)
         }
         
         updateTheme()
         
-        // Force immediate layout
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
+        // Force layout
+        strongSelf.view.layoutIfNeeded()
         
         print("✅ State transition complete, view count: \(contentStackView.arrangedSubviews.count)")
-        print("   Content stack has subviews: \(contentStackView.arrangedSubviews.map { type(of: $0) })")
     }
     
     @objc private func resetToPrompt() {
@@ -342,64 +328,75 @@ class KeyboardViewController: UIInputViewController {
         outputLabel.textColor = isDark ? UIColor.lightText : UIColor.label
     }
     
-    // MARK: - Pasteboard Handling
+    // MARK: - UIDropInteractionDelegate
     
-    @objc private func dropZoneTapped() {
-        print("📥 Drop zone tapped - checking pasteboard")
+    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+        // Check if the session contains an image
+        return session.canLoadObjects(ofClass: UIImage.self)
+    }
+    
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+        // Show that we accept the drop with copy operation
+        // Use .copy to prevent iOS from switching apps
+        let proposal = UIDropProposal(operation: .copy)
+        return proposal
+    }
+    
+    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+        print("📥 Drop interaction started")
         
-        // Visual feedback
-        UIView.animate(withDuration: 0.1, animations: {
-            self.dropZoneView.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
-        }) { _ in
-            UIView.animate(withDuration: 0.1) {
-                self.dropZoneView.transform = .identity
-            }
-        }
+        // Keep a strong reference to self to prevent deallocation
+        let strongSelf = self
         
-        // Check if pasteboard has an image
-        let pasteboard = UIPasteboard.general
-        
-        if pasteboard.hasImages {
-            print("✅ Image found in pasteboard")
-            
-            // Get the image from pasteboard
-            if let image = pasteboard.image {
-                print("✅ Image loaded from pasteboard")
+        // Handle the dropped image using item providers (safer for extensions)
+        for item in session.items {
+            item.itemProvider.loadObject(ofClass: UIImage.self) { (object, error) in
+                if let error = error {
+                    print("❌ Error loading image: \(error)")
+                    return
+                }
+                
+                guard let image = object as? UIImage else {
+                    print("❌ No image in drop")
+                    return
+                }
+                
+                print("✅ Image received from drop")
                 
                 // Generate a name for the screenshot
                 let imageName = "screenshot_\(Date().timeIntervalSince1970).jpg"
                 
-                // Show success feedback
-                dropZoneView.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.2)
-                dropZoneView.layer.borderColor = UIColor.systemGreen.cgColor
-                dropZoneLabel.text = "✓ Screenshot received!"
-                dropZoneLabel.textColor = UIColor.systemGreen
-                
-                // Transition to processing state
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    self?.currentState = .processing
-                    self?.processImage(image, name: imageName)
+                // Transition to processing state and process image
+                DispatchQueue.main.async {
+                    print("🔄 Transitioning to processing state")
+                    strongSelf.currentState = .processing
+                    strongSelf.processImage(image, name: imageName)
                 }
-            } else {
-                print("❌ Could not load image from pasteboard")
-                showPasteError("Could not load image")
             }
-        } else {
-            print("⚠️ No image in pasteboard")
-            showPasteError("No image found\n\nCopy a screenshot first")
+            break // Only process first item
         }
     }
     
-    private func showPasteError(_ message: String) {
-        // Show error feedback
-        dropZoneView.backgroundColor = UIColor.systemRed.withAlphaComponent(0.1)
-        dropZoneView.layer.borderColor = UIColor.systemRed.cgColor
-        dropZoneLabel.text = "❌\n\n\(message)"
-        dropZoneLabel.textColor = UIColor.systemRed
-        
-        // Reset after 2 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.resetDropZone()
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnter session: UIDropSession) {
+        // Visual feedback when drag enters the drop zone
+        UIView.animate(withDuration: 0.2) {
+            self.dropZoneView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
+            self.dropZoneView.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
+        }
+    }
+    
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
+        // Reset visual feedback when drag exits
+        UIView.animate(withDuration: 0.2) {
+            self.dropZoneView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.1)
+            self.dropZoneView.transform = .identity
+        }
+    }
+    
+    func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnd session: UIDropSession) {
+        // Reset transform after drop completes
+        UIView.animate(withDuration: 0.2) {
+            self.dropZoneView.transform = .identity
         }
     }
     
@@ -427,24 +424,10 @@ class KeyboardViewController: UIInputViewController {
     }
     
     private func startPollingForResponse() {
-        print("🔄 Starting response polling...")
         // Poll for response every 0.5 seconds
         checkResponseTimer?.invalidate()
-        pollCount = 0
-        checkResponseTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
-            guard let self = self else {
-                timer.invalidate()
-                return
-            }
-            self.pollCount += 1
-            print("   Polling attempt #\(self.pollCount)...")
-            self.checkForResponse()
-            
-            // Safety: stop after 20 seconds
-            if self.pollCount > 40 {
-                print("⏱️ Polling timeout after 20 seconds")
-                timer.invalidate()
-            }
+        checkResponseTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.checkForResponse()
         }
     }
     
@@ -452,36 +435,28 @@ class KeyboardViewController: UIInputViewController {
         if let response = SharedDataManager.shared.getResponse() {
             // Got response!
             print("📨 Response received: \(response)")
-            
-            // Stop timer AFTER we process
-            let timer = checkResponseTimer
+            checkResponseTimer?.invalidate()
+            checkResponseTimer = nil
             
             SharedDataManager.shared.clearResponse()
             
-            // Keep a strong reference and display response
-            let strongSelf = self
-            DispatchQueue.main.async {
+            // Display response in output view
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else {
+                    print("❌ Self was deallocated in checkForResponse")
+                    return
+                }
                 print("📤 About to show output view")
-                strongSelf.currentResponse = response
-                strongSelf.loadingSpinner.stopAnimating()
-                
-                // Stop timer here
-                timer?.invalidate()
-                strongSelf.checkResponseTimer = nil
-                
-                // Transition to output
-                strongSelf.currentState = .output
-                
-                // Force layout to ensure view is visible
-                strongSelf.view.layoutIfNeeded()
-                
-                print("✅ Output view displayed with: \(response)")
+                self.currentResponse = response
+                self.loadingSpinner.stopAnimating()
+                self.currentState = .output
+                print("✅ Output view should now be visible")
             }
         }
     }
     
     private func resetDropZone() {
-        dropZoneLabel.text = "📸\n\nPaste Screenshot Here\n\n1. Take a screenshot\n2. Tap the thumbnail & copy\n3. Tap here to paste"
+        dropZoneLabel.text = "📸\n\nDrag Screenshot Here\n\nTake a screenshot, then drag the\nthumbnail into this area"
         dropZoneView.layer.borderColor = UIColor.systemBlue.cgColor
         updateTheme()
     }

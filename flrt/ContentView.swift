@@ -55,9 +55,8 @@ struct ContentView: View {
                 Text("1. Enable the Flrt keyboard in Settings")
                 Text("2. Switch to the Flrt keyboard")
                 Text("3. Take a screenshot")
-                Text("4. Tap the thumbnail and copy it")
-                Text("5. Tap the paste area in the keyboard")
-                Text("6. Watch it process and respond!")
+                Text("4. Drag the thumbnail to the keyboard")
+                Text("5. Watch it process and respond!")
             }
             .font(.caption)
             .foregroundColor(.secondary)
@@ -121,8 +120,7 @@ class ImageProcessor: ObservableObject {
         print("📸 Processing image: \(imageName)")
         
         // Simulate processing (in the future, this will call an LLM)
-        // Add a longer delay to ensure keyboard is ready to receive
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             // For now, just return the filename
             let response = "the file is: \(imageName)"
             
@@ -130,8 +128,6 @@ class ImageProcessor: ObservableObject {
             
             // Save response for keyboard to read
             SharedDataManager.shared.saveResponse(response)
-            
-            print("💾 Response saved to shared UserDefaults")
             
             // Update UI
             self?.lastProcessedImage = imageName
