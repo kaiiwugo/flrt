@@ -19,5 +19,8 @@
 	<string>We need access to your photos to automatically fetch screenshots for processing with our keyboard.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>We need access to add processed results to your photo library.</string>
+	<key>OPENAI_API_KEY</key>
+	<string>YOUR_API_KEY_HERE</string>
 </dict>
 </plist>
+

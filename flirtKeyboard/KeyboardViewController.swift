@@ -389,6 +389,66 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         return (bubble, label)
     }
     
+    // MARK: - Response Handling
+    
+    private func updateBubblesWithResponse(_ response: String) {
+        // Try to parse as JSON
+        if let suggestions = parseJSONResponse(response) {
+            // Update bubbles with parsed suggestions
+            if suggestions.count > 0 {
+                responseLabel1?.text = suggestions[0]
+            }
+            if suggestions.count > 1 {
+                responseLabel2?.text = suggestions[1]
+            }
+            if suggestions.count > 2 {
+                responseLabel3?.text = suggestions[2]
+            }
+            print("✅ Updated bubbles with AI suggestions")
+        } else {
+            // Fallback: try pipe-separated
+            let suggestions = response.components(separatedBy: "|")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            
+            if suggestions.count > 0 {
+                responseLabel1?.text = suggestions[0]
+            }
+            if suggestions.count > 1 {
+                responseLabel2?.text = suggestions[1]
+            }
+            if suggestions.count > 2 {
+                responseLabel3?.text = suggestions[2]
+            }
+            print("✅ Updated bubbles with fallback parsing")
+        }
+        
+        // Update incoming message bubble context if available
+        if let context = parseContextFromResponse(response), !context.isEmpty {
+            incomingMessageLabel?.text = context
+        }
+    }
+    
+    private func parseJSONResponse(_ jsonString: String) -> [String]? {
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let suggestions = json["suggestions"] as? [[String: Any]] else {
+            return nil
+        }
+        
+        return suggestions.compactMap { $0["text"] as? String }
+    }
+    
+    private func parseContextFromResponse(_ response: String) -> String? {
+        guard let data = response.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let context = json["context"] as? String else {
+            return nil
+        }
+        
+        return context.isEmpty ? nil : context
+    }
+    
     private func createResponseRow(text: String) -> UIView {
         let row = UIView()
         row.translatesAutoresizingMaskIntoConstraints = false
@@ -472,11 +532,10 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
                 print("   → Screenshot set in output view (cropped)")
             }
             
-            // Update bubble text with response (for now just sample text)
+            // Update bubble text with AI response
             if let response = currentResponse {
-                print("   → Response: \(response)")
-                // TODO: Parse response and populate bubbles
-                // For now, bubbles show sample text
+                print("   → Response received")
+                updateBubblesWithResponse(response)
             }
         }
         

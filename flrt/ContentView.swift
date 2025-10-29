@@ -248,23 +248,144 @@ class ImageProcessor: ObservableObject {
         
         isProcessing = true
         let imageName = imageData.name
+        let image = imageData.image
         
         print("📸 Processing image: \(imageName)")
         
-        // Simulate processing (in the future, this will call an LLM)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            // For now, just return the filename
-            let response = "the file is: \(imageName)"
-            
-            print("✅ Processed! Response: \(response)")
-            
-            // Save response for keyboard to read
-            SharedDataManager.shared.saveResponse(response)
-            
-            // Update UI
-            self?.lastProcessedImage = imageName
-            self?.isProcessing = false
+        // Process with AI
+        Task {
+            do {
+                // Create AI request
+                let request = AIRequest(image: image)
+                
+                // Process through AI service
+                let parsedResponse = try await AIServiceManager.shared.processImage(request)
+                
+                // Convert to keyboard format (JSON string with suggestions)
+                let responseJSON = formatResponseForKeyboard(parsedResponse)
+                
+                print("✅ AI Processing complete!")
+                print("   Suggestions: \(parsedResponse.suggestions.count)")
+                print("   Context: \(parsedResponse.originalContext ?? "none")")
+                
+                // Save response for keyboard to read
+                await MainActor.run {
+                    SharedDataManager.shared.saveResponse(responseJSON)
+                    self.lastProcessedImage = imageName
+                    self.isProcessing = false
+                }
+                
+            } catch let error as AIError {
+                print("❌ AI Error: \(error.errorDescription ?? error.localizedDescription)")
+                
+                // Send fallback response
+                await MainActor.run {
+                    let fallbackResponse = createFallbackResponse(error: error)
+                    SharedDataManager.shared.saveResponse(fallbackResponse)
+                    self.lastProcessedImage = "Error: \(imageName)"
+                    self.isProcessing = false
+                }
+                
+            } catch {
+                print("❌ Unexpected error: \(error.localizedDescription)")
+                
+                // Send generic fallback
+                await MainActor.run {
+                    let fallbackResponse = createGenericFallbackResponse()
+                    SharedDataManager.shared.saveResponse(fallbackResponse)
+                    self.lastProcessedImage = "Error: \(imageName)"
+                    self.isProcessing = false
+                }
+            }
         }
+    }
+    
+    // MARK: - Response Formatting
+    
+    private func formatResponseForKeyboard(_ response: ParsedResponse) -> String {
+        // Format as JSON for keyboard to parse
+        let suggestions = response.suggestions.map { suggestion in
+            return [
+                "text": suggestion.text,
+                "category": suggestion.category?.rawValue ?? "casual"
+            ]
+        }
+        
+        let jsonDict: [String: Any] = [
+            "suggestions": suggestions,
+            "context": response.originalContext ?? "",
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        // Convert to JSON string
+        if let jsonData = try? JSONSerialization.data(withJSONObject: jsonDict, options: []),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            return jsonString
+        }
+        
+        // Fallback: return plain text
+        return response.suggestions.map { $0.text }.joined(separator: "|")
+    }
+    
+    private func createFallbackResponse(error: AIError) -> String {
+        let suggestions: [[String: String]]
+        
+        switch error {
+        case .unauthorized:
+            suggestions = [
+                ["text": "API key not configured", "category": "error"],
+                ["text": "Please check app settings", "category": "error"],
+                ["text": "Unable to process image", "category": "error"]
+            ]
+            
+        case .rateLimitExceeded:
+            suggestions = [
+                ["text": "Rate limit reached", "category": "error"],
+                ["text": "Please try again later", "category": "error"],
+                ["text": "Service temporarily unavailable", "category": "error"]
+            ]
+            
+        default:
+            suggestions = [
+                ["text": "Processing failed", "category": "error"],
+                ["text": "Please try again", "category": "error"],
+                ["text": "Unable to analyze image", "category": "error"]
+            ]
+        }
+        
+        let jsonDict: [String: Any] = [
+            "suggestions": suggestions,
+            "context": "Error: \(error.errorDescription ?? "Unknown error")",
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        if let jsonData = try? JSONSerialization.data(withJSONObject: jsonDict),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            return jsonString
+        }
+        
+        return "Error|Please try again|Processing failed"
+    }
+    
+    private func createGenericFallbackResponse() -> String {
+        let suggestions = [
+            ["text": "That's interesting!", "category": "casual"],
+            ["text": "Thanks for sharing", "category": "casual"],
+            ["text": "What do you think?", "category": "casual"]
+        ]
+        
+        let jsonDict: [String: Any] = [
+            "suggestions": suggestions,
+            "context": "",
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        if let jsonData = try? JSONSerialization.data(withJSONObject: jsonDict),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            return jsonString
+        }
+        
+        return "That's interesting!|Thanks for sharing|What do you think?"
     }
     
     deinit {
