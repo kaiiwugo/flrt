@@ -19,6 +19,10 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         case output    // Showing results
     }
     
+    // Height Constants
+    private let compactHeight: CGFloat = 120  // Small height for prompt state
+    private let expandedHeight: CGFloat = 380 // Full height for output state
+    
     private var currentState: KeyboardState = .prompt {
         didSet {
             transitionToState(currentState)
@@ -67,12 +71,28 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
     override func updateViewConstraints() {
         super.updateViewConstraints()
         
-        // Set keyboard height to match standard iOS keyboard
+        // Set keyboard height based on current state
         if heightConstraint == nil {
-            let keyboardHeight: CGFloat = 300
-            heightConstraint = view.heightAnchor.constraint(equalToConstant: keyboardHeight)
+            // Start with compact height
+            heightConstraint = view.heightAnchor.constraint(equalToConstant: compactHeight)
             heightConstraint?.priority = .defaultHigh
             heightConstraint?.isActive = true
+        }
+    }
+    
+    // MARK: - Height Management
+    
+    private func setKeyboardHeight(_ height: CGFloat, animated: Bool = true) {
+        guard let constraint = heightConstraint else { return }
+        
+        if animated {
+            UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut], animations: {
+                constraint.constant = height
+                self.view.layoutIfNeeded()
+            })
+        } else {
+            constraint.constant = height
+            self.view.layoutIfNeeded()
         }
     }
     
@@ -155,7 +175,7 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         promptLabel.text = "take a screen shot to analyze"
         promptLabel.textAlignment = .center
         promptLabel.numberOfLines = 0
-        promptLabel.font = UIFont.systemFont(ofSize: 18, weight: .regular)
+        promptLabel.font = UIFont.systemFont(ofSize: 16, weight: .regular)
         promptLabel.textColor = UIColor.secondaryLabel
         promptView.addSubview(promptLabel)
         
@@ -177,7 +197,7 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         loadingLabel.text = "processing"
         loadingLabel.textAlignment = .center
         loadingLabel.numberOfLines = 1
-        loadingLabel.font = UIFont.systemFont(ofSize: 18, weight: .regular)
+        loadingLabel.font = UIFont.systemFont(ofSize: 16, weight: .regular)
         loadingLabel.textColor = UIColor.secondaryLabel
         loadingView.addSubview(loadingLabel)
         
@@ -228,7 +248,7 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         let incomingRow = UIView()
         incomingRow.translatesAutoresizingMaskIntoConstraints = false
         
-        let (incomingBubble, incomingLabel) = createIncomingBubble(text: "What do you think of this?")
+        let (incomingBubble, incomingLabel) = createIncomingBubble(text: "flrt options")
         incomingMessageBubble = incomingBubble
         incomingMessageLabel = incomingLabel
         incomingRow.addSubview(incomingBubble)
@@ -424,9 +444,8 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         }
         
         // Update incoming message bubble context if available
-        if let context = parseContextFromResponse(response), !context.isEmpty {
-            incomingMessageLabel?.text = context
-        }
+        // Keep the static "flrt options" text - don't update with context
+        // The incoming bubble is just a visual separator, not a dynamic message
     }
     
     private func parseJSONResponse(_ jsonString: String) -> [String]? {
@@ -437,16 +456,6 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         }
         
         return suggestions.compactMap { $0["text"] as? String }
-    }
-    
-    private func parseContextFromResponse(_ response: String) -> String? {
-        guard let data = response.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let context = json["context"] as? String else {
-            return nil
-        }
-        
-        return context.isEmpty ? nil : context
     }
     
     private func createResponseRow(text: String) -> UIView {
@@ -505,23 +514,26 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         // Remove all views from stack
         contentStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
         
-        // Add appropriate view based on state
+        // Add appropriate view based on state and adjust height
         switch state {
         case .prompt:
-            print("   → Showing prompt view")
+            print("   → Showing prompt view (compact)")
             contentStackView.addArrangedSubview(promptView)
+            setKeyboardHeight(compactHeight, animated: true)
             // Ensure observer is running in prompt state
             startPhotoLibraryObserver()
             
         case .processing:
-            print("   → Showing loading view")
+            print("   → Showing loading view (expanded)")
             contentStackView.addArrangedSubview(loadingView)
+            setKeyboardHeight(expandedHeight, animated: true)
             // Stop observer during processing to avoid conflicts
             stopPhotoLibraryObserver()
             
         case .output:
-            print("   → Showing output view")
+            print("   → Showing output view (expanded)")
             contentStackView.addArrangedSubview(outputView)
+            setKeyboardHeight(expandedHeight, animated: true)
             // Stop observer in output state
             stopPhotoLibraryObserver()
             
@@ -759,10 +771,9 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         
         // Calculate keyboard height as a percentage of screen height
         // iOS keyboards are typically 270-300pt on most devices
-        // We want to be more aggressive and crop everything from the keyboard down
-        // Including the input field and any UI elements above the keyboard
-        // Use 42% to crop slightly higher and get only the pure content area
-        let keyboardHeightPercentage: CGFloat = 0.42
+        // Crop out the keyboard area while preserving more content above it
+        // Use 30% to show more of the screenshot content
+        let keyboardHeightPercentage: CGFloat = 0.30
         let keyboardHeightInPixels = imageHeight * keyboardHeightPercentage
         
         // Calculate the crop rectangle (everything ABOVE the keyboard)
