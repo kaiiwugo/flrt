@@ -450,14 +450,20 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         case .prompt:
             print("   → Showing prompt view")
             contentStackView.addArrangedSubview(promptView)
+            // Ensure observer is running in prompt state
+            startPhotoLibraryObserver()
             
         case .processing:
             print("   → Showing loading view")
             contentStackView.addArrangedSubview(loadingView)
+            // Stop observer during processing to avoid conflicts
+            stopPhotoLibraryObserver()
             
         case .output:
             print("   → Showing output view")
             contentStackView.addArrangedSubview(outputView)
+            // Stop observer in output state
+            stopPhotoLibraryObserver()
             
             // Set the screenshot in output view (cropped to remove keyboard)
             if let screenshot = currentScreenshot {
@@ -481,16 +487,36 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
     }
     
     @objc private func resetToPrompt() {
-        checkResponseTimer?.invalidate()
-        checkResponseTimer = nil
-        currentResponse = nil
-        currentScreenshot = nil
+        print("🔄 Reset to prompt requested")
         
-        // Reset prompt label
-        promptLabel.text = "take a screen shot to analyze"
-        promptLabel.textColor = UIColor.secondaryLabel
-        
-        currentState = .prompt
+        // Ensure we're on the main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { 
+                print("❌ Self was deallocated in resetToPrompt")
+                return 
+            }
+            
+            // Clean up timers and state
+            self.checkResponseTimer?.invalidate()
+            self.checkResponseTimer = nil
+            self.currentResponse = nil
+            self.currentScreenshot = nil
+            
+            // Clear the screenshot from output view to free memory
+            self.outputScreenshotView.image = nil
+            
+            // Reset prompt label
+            self.promptLabel.text = "take a screen shot to analyze"
+            self.promptLabel.textColor = UIColor.secondaryLabel
+            
+            // Transition back to prompt state
+            self.currentState = .prompt
+            
+            // Restart photo library observer to watch for new screenshots
+            self.startPhotoLibraryObserver()
+            
+            print("✅ Reset complete, ready for new screenshot")
+        }
     }
     
     
