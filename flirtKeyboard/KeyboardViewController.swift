@@ -117,11 +117,12 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         setupLoadingView()
         setupOutputView()
         
-        // Next Keyboard Button
+        // Next Keyboard Button (hidden by default, only shows if needed)
         self.nextKeyboardButton = UIButton(type: .system)
-        self.nextKeyboardButton.setTitle("⌨️", for: [])
+        self.nextKeyboardButton.setTitle("🌐", for: [])
         self.nextKeyboardButton.translatesAutoresizingMaskIntoConstraints = false
         self.nextKeyboardButton.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+        self.nextKeyboardButton.isHidden = true  // Hide by default
         containerView.addSubview(self.nextKeyboardButton)
         
         // Layout constraints
@@ -131,15 +132,16 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
             containerView.topAnchor.constraint(equalTo: self.view.topAnchor),
             containerView.bottomAnchor.constraint(equalTo: self.view.bottomAnchor),
             
-            contentStackView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 12),
-            contentStackView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 12),
-            contentStackView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -12),
-            contentStackView.bottomAnchor.constraint(equalTo: nextKeyboardButton.topAnchor, constant: -12),
+            contentStackView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            contentStackView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            contentStackView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            contentStackView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
             
-            nextKeyboardButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 12),
+            // Next keyboard button (bottom-left when visible)
+            nextKeyboardButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
             nextKeyboardButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -8),
-            nextKeyboardButton.widthAnchor.constraint(equalToConstant: 40),
-            nextKeyboardButton.heightAnchor.constraint(equalToConstant: 40)
+            nextKeyboardButton.widthAnchor.constraint(equalToConstant: 32),
+            nextKeyboardButton.heightAnchor.constraint(equalToConstant: 32)
         ])
     }
     
@@ -293,53 +295,70 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
             toolbarView.leadingAnchor.constraint(equalTo: outputView.leadingAnchor),
             toolbarView.trailingAnchor.constraint(equalTo: outputView.trailingAnchor),
             toolbarView.bottomAnchor.constraint(equalTo: outputView.bottomAnchor),
-            toolbarView.heightAnchor.constraint(equalToConstant: 44)
+            toolbarView.heightAnchor.constraint(equalToConstant: 50)
         ])
     }
     
     private func setupToolbar() {
         toolbarView = UIView()
         toolbarView.translatesAutoresizingMaskIntoConstraints = false
-        toolbarView.backgroundColor = .clear
+        // Match the system keyboard background color more accurately
+        toolbarView.backgroundColor = UIColor(red: 0.85, green: 0.87, blue: 0.89, alpha: 1.0)
         
-        // Plus button (left)
+        // Plus button (left) - with circular background
         plusButton = UIButton(type: .system)
         plusButton.translatesAutoresizingMaskIntoConstraints = false
         plusButton.setTitle("+", for: .normal)
-        plusButton.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .regular)
+        plusButton.titleLabel?.font = UIFont.systemFont(ofSize: 22, weight: .medium)
         plusButton.setTitleColor(UIColor.systemBlue, for: .normal)
+        plusButton.backgroundColor = UIColor.white
+        plusButton.layer.cornerRadius = 18
+        plusButton.layer.shadowColor = UIColor.black.cgColor
+        plusButton.layer.shadowOffset = CGSize(width: 0, height: 1)
+        plusButton.layer.shadowRadius = 2
+        plusButton.layer.shadowOpacity = 0.1
         toolbarView.addSubview(plusButton)
         
-        // Flrt button (center)
+        // Flrt button (center) - with rounded background
         flrtButton = UIButton(type: .system)
         flrtButton.translatesAutoresizingMaskIntoConstraints = false
         flrtButton.setTitle("flrt", for: .normal)
-        flrtButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
-        flrtButton.setTitleColor(UIColor.label, for: .normal)
+        flrtButton.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        flrtButton.setTitleColor(UIColor.white, for: .normal)
+        flrtButton.backgroundColor = UIColor.systemBlue
+        flrtButton.layer.cornerRadius = 16
+        flrtButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 20, bottom: 8, right: 20)
         toolbarView.addSubview(flrtButton)
         
-        // Close button (right)
+        // Close button (right) - with circular background
         closeButton = UIButton(type: .system)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setTitle("✕", for: .normal)
-        closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 20, weight: .regular)
+        closeButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .medium)
         closeButton.setTitleColor(UIColor.secondaryLabel, for: .normal)
+        closeButton.backgroundColor = UIColor.white
+        closeButton.layer.cornerRadius = 18
+        closeButton.layer.shadowColor = UIColor.black.cgColor
+        closeButton.layer.shadowOffset = CGSize(width: 0, height: 1)
+        closeButton.layer.shadowRadius = 2
+        closeButton.layer.shadowOpacity = 0.1
         closeButton.addTarget(self, action: #selector(resetToPrompt), for: .touchUpInside)
         toolbarView.addSubview(closeButton)
         
         NSLayoutConstraint.activate([
-            plusButton.leadingAnchor.constraint(equalTo: toolbarView.leadingAnchor, constant: 16),
+            plusButton.leadingAnchor.constraint(equalTo: toolbarView.leadingAnchor, constant: 12),
             plusButton.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor),
-            plusButton.widthAnchor.constraint(equalToConstant: 44),
-            plusButton.heightAnchor.constraint(equalToConstant: 44),
+            plusButton.widthAnchor.constraint(equalToConstant: 36),
+            plusButton.heightAnchor.constraint(equalToConstant: 36),
             
             flrtButton.centerXAnchor.constraint(equalTo: toolbarView.centerXAnchor),
             flrtButton.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor),
+            flrtButton.heightAnchor.constraint(equalToConstant: 32),
             
-            closeButton.trailingAnchor.constraint(equalTo: toolbarView.trailingAnchor, constant: -16),
+            closeButton.trailingAnchor.constraint(equalTo: toolbarView.trailingAnchor, constant: -12),
             closeButton.centerYAnchor.constraint(equalTo: toolbarView.centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 44),
-            closeButton.heightAnchor.constraint(equalToConstant: 44)
+            closeButton.widthAnchor.constraint(equalToConstant: 36),
+            closeButton.heightAnchor.constraint(equalToConstant: 36)
         ])
     }
     
@@ -655,9 +674,10 @@ class KeyboardViewController: UIInputViewController, PHPhotoLibraryChangeObserve
         
         // Calculate keyboard height as a percentage of screen height
         // iOS keyboards are typically 270-300pt on most devices
-        // As a percentage of screen height, this is roughly 32-35%
-        // We'll use 33% to be safe
-        let keyboardHeightPercentage: CGFloat = 0.33
+        // We want to be more aggressive and crop everything from the keyboard down
+        // Including the input field and any UI elements above the keyboard
+        // Use 42% to crop slightly higher and get only the pure content area
+        let keyboardHeightPercentage: CGFloat = 0.42
         let keyboardHeightInPixels = imageHeight * keyboardHeightPercentage
         
         // Calculate the crop rectangle (everything ABOVE the keyboard)

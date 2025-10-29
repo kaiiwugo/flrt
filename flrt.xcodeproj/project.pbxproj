@@ -641,7 +641,7 @@
 				DEVELOPMENT_TEAM = KX4D6QX4A2;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = flirtKeyboard/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = flirtKeyboard;
+				INFOPLIST_KEY_CFBundleDisplayName = flirt;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to your photos so you can select screenshots to process.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -668,7 +668,7 @@
 				DEVELOPMENT_TEAM = KX4D6QX4A2;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = flirtKeyboard/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = flirtKeyboard;
+				INFOPLIST_KEY_CFBundleDisplayName = flirt;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to your photos so you can select screenshots to process.";
 				LD_RUNPATH_SEARCH_PATHS = (
